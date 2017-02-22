@@ -9,3 +9,7 @@ When it receives one, it will check for its validity and that the webmention doe
 The plugin must send out the right HTTP header for
 
 There should be a black list for sites that you don't want to accept.
+
+## Issues to resolve
+
+* ~~How do we ensure not to send a webmention that's already been sent when editing a post?~~ (addressed in section 3.1.4 of the spec; it's up to the target, not the source to do that)
