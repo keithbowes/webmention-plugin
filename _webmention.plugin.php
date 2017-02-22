@@ -39,14 +39,23 @@ class webmention_plugin extends Plugin
 
 	function BeforeBlogDisplay( & $params )
 	{
-		global $plugins_path, $plugins_url;
+		global $baseurl;
 		// TODO: Send a HTTP header instead?
-		add_headline(sprintf('<link rel="webmention" href="%s" />', str_replace($plugins_path, $plugins_url, __FILE__)));
+		add_headline(sprintf('<link rel="webmention" href="%s?redir=no" />', $baseurl));
 		// TODO: This is probably where we capture sent Webmentions
 		// Ensure the source actually contains the URLs
 		// If the post was deleted, send a 410 GONE HTTP response
 		$source = @$_POST['source'];
-		$target = @$POST['target'];
+		$target = @$_POST['target'];
+
+		if ($source && $target)
+		{
+			global $basepath;
+			$fh = fopen($basepath . '/webmention', 'a');
+			fwrite($fh, sprintf('Received source "%s" and target "%s"%s', $source, $target, PHP_EOL));
+			fclose($fh);
+		}
+
 		// TODO: Ensure $source and $target are valid HTTP(S) URLs
 		// TODO: Validate asynchronously
 		// TODO: Make sure the target URL is referenced in <a href> or <* src>
@@ -103,9 +112,6 @@ class webmention_plugin extends Plugin
 		// Don't spit a boatload of warnings for bad HTML
 		@$document->loadHTML($item->content);
 		$links = $document->getElementsByTagName('a');
-		$fh = fopen($basepath . '/webmention', 'a');
-		fwrite($fh, $links->length . PHP_EOL);
-		fclose($fh);
 		for ($i = 0 ; $i < $links->length; $i++)
 		{
 			$link = $links->item($i)->getAttribute('href');
@@ -118,15 +124,16 @@ class webmention_plugin extends Plugin
 			// TODO: Respect caching headers <https://tools.ietf.org/html/rfc7234>
 			foreach ($endpoints as $endpoint)
 			{
-				/*$ch = curl_init();
+				$ch = curl_init();
 				curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-				curl_setopt($ch, CUROPTL_POST, TRUE);
+				curl_setopt($ch, CURLOPT_POST, TRUE);
 				curl_setopt($ch, CURLOPT_POSTFIELDS,
-					http_build_query(array('source' => $item->permalink, 'target' => $link)));
+					http_build_query(array('source' => $item->get_permanent_url(), 'target' => $link)));
 				curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
 				curl_setopt($ch, CURLOPT_URL, $endpoint);
 				curl_setopt($ch, CURLOPT_USERAGENT, $this->user_agent);
-				curl_close($ch);*/
+				curl_exec($ch);
+				curl_close($ch);
 			}
 		}
 
