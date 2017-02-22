@@ -37,36 +37,56 @@ class webmention_plugin extends Plugin
 
 	function BeforeBlogDisplay( & $params )
 	{
-		global $baseurl;
-		// TODO: Send a HTTP header instead?
-		add_headline(sprintf('<link rel="webmention" href="%s?redir=no" />', $baseurl));
-		// TODO: This is probably where we capture sent Webmentions
-		// Ensure the source actually contains the URLs
-		// If the post was deleted, send a 410 GONE HTTP response
-		$source = @$_POST['source'];
-		$target = @$_POST['target'];
+		global $Item;
+		global $app_version, $baseurl;
+		global $basepath;
 
-		if ($source && $target)
+		// Only deal with Webmentions on items
+		if (is_object($Item))
 		{
-			global $basepath;
-			$fh = fopen($basepath . '/webmention', 'a');
-			fwrite($fh, sprintf('Received source "%s" and target "%s"%s', $source, $target, PHP_EOL));
-			fclose($fh);
-		}
+			// TODO: Ensure the source actually contains the URLs (MUST)
+			// TODO: If the post was deleted, send a 410 GONE HTTP response (SHOULD)
+			$csrf = @$_GET['csrf'];
+			$source = @$_POST['source'];
+			$target = @$_POST['target'];
 
-		// TODO: Ensure $source and $target are valid HTTP(S) URLs
-		// TODO: Validate asynchronously
-		// TODO: Make sure the target URL is referenced in <a href> or <* src>
-		// TODO: If the request is invalid (target URL not found, target URL does not accept Webmention requests, unsupported URL scheme), send a 400 Bad Request
-		// TODO: If the request can't be processed, send a 500 Internal Server Error
-		// TODO: Inspect the request and be sure the source isn't already in the comments for the target item's comment
-		// TODO: If the source server gives a 410 gone or the link can't be found on the source server, delete the existing Webmention
-		// TODO: No content changes on the source or target shouldn't get shown as another comment entry
-		// TODO: Encode data as not to be the target of an XSS or CSFR attack
-		// TODO: NO response from the web server in five seconds is a failure
-		$ch = curl_init();
-		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-		curl_close($ch);
+			$fh = fopen($basepath . '/webmention', 'a');
+			fwrite($fh, $source . PHP_EOL);
+			fwrite($fh, $target . PHP_EOL);
+
+			// TODO: Improve!
+			$token = md5(serialize(array('url' => $Item->get_permanent_url(), 'version' => $app_version)));
+			add_headline(sprintf('<link rel="webmention" href="%s?webmention&amp;csrf=%s&amp;redir=no" />', $Item->get_permanent_url(), $token));
+
+			// Everything seems OK; try to process the Webmention
+			// TODO: Don't process blacklisted sources
+			if ($source && $target && $token == md5(serialize(array('url' => $target, 'version' => $app_version))))
+			{
+				$fh = fopen($basepath . '/webmention', 'a');
+				fwrite($fh, sprintf('"%s" and "%s" are the same. Continue.%s', $Item->get_permanent_url(), $target, PHP_EOL));
+				fclose($fh);
+				// If it's not an HTTP(S) source, don't process it
+				if (!preg_match(',^https?://,', $source))
+				{
+					header_http_response('400 Bad Request');
+					exit(0);
+				}
+			}
+		
+
+			// TODO: Ensure $source and $target are valid HTTP(S) URLs (MUST)
+			// TODO: Validate asynchronously (SHOULD)
+			// TODO: Make sure the target URL is referenced in <a href> or <* src> (SHOULD)
+			// TODO: If the request is invalid (target URL not found, target URL does not accept Webmention requests, unsupported URL scheme), send a 400 Bad Request (MUST)
+			// TODO: If the request can't be processed, send a 500 Internal Server Error (SHOULD)
+			// TODO: Inspect the request and be sure the source isn't already in the comments for the target item's comment (MUST)
+			// TODO: If the source server gives a 410 gone or the link can't be found on the source server, delete the existing Webmention (SHOULD)
+			// TODO: No content changes on the source or target shouldn't get shown as another comment entry (SHOULD)
+			// TODO: Encode data as not to be the target of an XSS or CSRF attack (MUST)
+			$ch = curl_init();
+			curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+			curl_close($ch);
+		}
 	}
 
 	function BeforeEnable()
@@ -106,6 +126,9 @@ class webmention_plugin extends Plugin
 		global $basepath;
 		global $DB;
 
+		if (!is_object($item))
+			return;
+
 		$document = new DOMDocument();
 		// Don't spit a boatload of warnings for bad HTML
 		@$document->loadHTML($item->content);
@@ -131,12 +154,9 @@ class webmention_plugin extends Plugin
 		{
 			$link = $links->item($i)->getAttribute('href');
 			$endpoints = $this->getEndpoints($link);
-			// TODO: Send a webmention here
-			// TODO: Send FETCH request to the endpoint
-			// endpoint?source=$item->permalink&target=$link
-			// TODO: Support the Link: <http://example.com>; rel=webmention syntax
-			// TODO: Handle CSFR parameters?
-			// TODO: Respect caching headers <https://tools.ietf.org/html/rfc7234>
+			// TODO: Support the Link: <http://example.com>; rel=webmention syntax (MAY)
+			// TODO: Handle CSRF parameters? (SHOULD)
+			// TODO: Respect caching headers <https://tools.ietf.org/html/rfc7234> (SHOULD)
 			foreach ($endpoints as $endpoint)
 			{
 				$ch = curl_init();
@@ -164,8 +184,8 @@ class webmention_plugin extends Plugin
 
 		$document = new DOMDocument();
 		@$document->loadHTML(curl_exec($ch));
-		// TODO: Loop through <a> and <link> elements looking for ones with rel="webmention"
 		$elems = $document->getElementsByTagName('*');
+
 		for ($i = 0; $i < $elems->length; $i++)
 		{
 			if (in_array($elems->item($i)->tagName, array('a', 'link')) &&
@@ -181,10 +201,15 @@ class webmention_plugin extends Plugin
 				// Cleanup the reassembled URL
 				$endpoint = str_replace(array(':@', ':/', ':?', '?#'), array('', '/', '?', '#'), $endpoint);
 				$endpoint = preg_replace(',^(\w+)(//),', '$1:$2', $endpoint);
+				global $basepath;
+				$fh = fopen($basepath . '/webmention', 'a');
+				fwrite($fh, sprintf('Found endpoint "%s"%s', $endpoint, PHP_EOL));
+				fclose($fh);
 
 				$endpoints[] = $endpoint;
 			}
 		}
+
 		curl_close($ch);
 		return $endpoints;
 	}
