@@ -5,8 +5,6 @@ class webmention_plugin extends Plugin
 	var $author = 'Keith Bowes';
 	var $code = 'b2_webmention';
 	var $group = 'ping';
-	// After all the other plugins (e.g. Markdown, Auto Links) generate links
-	var $priority = 100;
 	var $version = '0.1';
 
 	function PluginInit( & $params )
@@ -111,6 +109,23 @@ class webmention_plugin extends Plugin
 		$document = new DOMDocument();
 		// Don't spit a boatload of warnings for bad HTML
 		@$document->loadHTML($item->content);
+
+		// Convert all URLs in text nodes to links
+		$url_re = ',\w+://[^\'"\)]+,';
+		$elems = $document->getElementsByTagName('*');
+		for ($i = 0; $i < $elems->length; $i++)
+		{
+			$text = $elems->item($i)->nodeValue;
+			if ($elems->item($i)->tagName != 'a' &&
+				preg_match($url_re, $text))
+			{
+				$link = $document->createElement('a');
+				$link->setAttribute('href', $text);
+				$document->appendChild($link);
+			}
+		}
+
+		// Get all links on the page
 		$links = $document->getElementsByTagName('a');
 		for ($i = 0 ; $i < $links->length; $i++)
 		{
