@@ -18,10 +18,9 @@ class webmention_plugin extends Plugin
 		$this->user_agent = sprintf("%s/%s Webmention/1.0", $app_name, $app_version);
 	}
 
-	/* The post has been created through the back office */
-	function AdminBeforeItemEditCreate( & $params)
+	/* The post has been created through the back-office */
+	function AdminBeforeItemEditCreate( & $params )
 	{
-		// TODO: Where we inspect the posts?
 		$this->sendWebmention($params['Item']);
 
 	}
@@ -40,11 +39,14 @@ class webmention_plugin extends Plugin
 
 	function BeforeBlogDisplay( & $params )
 	{
+		global $plugins_path, $plugins_url;
+		// TODO: Send a HTTP header instead?
+		add_headline(sprintf('<link rel="webmention" href="%s" />', str_replace($plugins_path, $plugins_url, __FILE__)));
 		// TODO: This is probably where we capture sent Webmentions
 		// Ensure the source actually contains the URLs
 		// If the post was deleted, send a 410 GONE HTTP response
-		$source = $_POST['source'];
-		$target = $POST['target'];
+		$source = @$_POST['source'];
+		$target = @$POST['target'];
 		// TODO: Ensure $source and $target are valid HTTP(S) URLs
 		// TODO: Validate asynchronously
 		// TODO: Make sure the target URL is referenced in <a href> or <* src>
@@ -55,6 +57,9 @@ class webmention_plugin extends Plugin
 		// TODO: No content changes on the source or target shouldn't get shown as another comment entry
 		// TODO: Encode data as not to be the target of an XSS or CSFR attack
 		// TODO: NO response from the web server in five seconds is a failure
+		$ch = curl_init();
+		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+		curl_close($ch);
 	}
 
 	function BeforeEnable()
@@ -73,21 +78,20 @@ class webmention_plugin extends Plugin
 				'defaultvalue' => "$basehost\nlocalhost\n127.0.0.1/8",
 				'label' => T_('Blacklist'),
 				'type' => 'html_textarea',
-			)
+			),
+			'webmention_enable' => array(
+				'defaultvalue' => 1,
+				'label' => T_('Enable Webmention'),
+				'note' => T_('Disabling can tell senders that you don\'t accept Webmentions'),
+				'type' => 'checkbox',
+			),
 		);
 	}
 
-	/* When the post is updated or posted via XML-RPC */
+	/* When the post is updated, or when it's posted via XML-RPC */
 	function PrependItemUpdateTransact( & $params )
 	{
-		// TODO: Where we inspect the posts?
-
 		$this->sendWebmention($params['Item']);
-	}
-
-	function SkinEndHtmlHead( & $params )
-	{
-		//TODO: Output a <link> here, or output an HTTP header before blog display?
 	}
 
 	function sendWebmention( & $item )
@@ -96,28 +100,33 @@ class webmention_plugin extends Plugin
 		global $DB;
 
 		$document = new DOMDocument();
-		$document->loadHTML($item->post_content);
-		$links = document.getElementsByTagName('a');
-		for ($i = 0 ; $i < $links.length; $i++)
+		// Don't spit a boatload of warnings for bad HTML
+		@$document->loadHTML($item->content);
+		$links = $document->getElementsByTagName('a');
+		$fh = fopen($basepath . '/webmention', 'a');
+		fwrite($fh, $links->length . PHP_EOL);
+		fclose($fh);
+		for ($i = 0 ; $i < $links->length; $i++)
 		{
-			$link = $links.item($i).href;
+			$link = $links->item($i)->getAttribute('href');
 			$endpoints = $this->getEndpoints($link);
 			// TODO: Send a webmention here
 			// TODO: Send FETCH request to the endpoint
-			// endpoint?source=$item->post_permalink&target=$link
+			// endpoint?source=$item->permalink&target=$link
 			// TODO: Support the Link: <http://example.com>; rel=webmention syntax
-			// TODO: NO response from the web server in five seconds is a failure
 			// TODO: Handle CSFR parameters?
 			// TODO: Respect caching headers <https://tools.ietf.org/html/rfc7234>
 			foreach ($endpoints as $endpoint)
 			{
-				curl_setopt($ch, CURL_POST, TRUE);
-				curl_setopt($ch, CURLOPT_POSTDFIELDS, sprintf("source=%s&target=%s",
-					htmlspecialchars($item->post_permalink), htmlspecialchars($link)));
-				$ch = curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
-				$ch = curl_setopt($ch, CURLOPT_URL, $endpoint);
-				$ch = curl_setopt($ch, CURLOPT_USERAGENT, $this->user_agent);
-				curl_close($fh);
+				/*$ch = curl_init();
+				curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+				curl_setopt($ch, CUROPTL_POST, TRUE);
+				curl_setopt($ch, CURLOPT_POSTFIELDS,
+					http_build_query(array('source' => $item->permalink, 'target' => $link)));
+				curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+				curl_setopt($ch, CURLOPT_URL, $endpoint);
+				curl_setopt($ch, CURLOPT_USERAGENT, $this->user_agent);
+				curl_close($ch);*/
 			}
 		}
 
@@ -125,25 +134,32 @@ class webmention_plugin extends Plugin
 
 	function getEndpoints($link)
 	{
-		// TODO: Discover the endpoint
-		// TODO: NO response from the web server in five seconds is a failure
 		$ch = curl_init();
-		$ch = curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
-		$ch = curl_setopt($ch, CURLOPT_URL, $link);
-		$ch = curl_setopt($ch, CURLOPT_USERAGENT, $this->user_agent);
+		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+		curl_setopt($ch, CURLOPT_URL, $link);
+		curl_setopt($ch, CURLOPT_USERAGENT, $this->user_agent);
 
 		$document = new DOMDocument();
-		$document->loadHTML(curl_exec($ch));
+		@$document->loadHTML(curl_exec($ch));
 		// TODO: Loop through <a> and <link> elements looking for ones with rel="webmention"
 		$elems = $document->getElementsByTagName('*');
-		for ($i = 0; $i < $elems.length; $i++)
+		for ($i = 0; $i < $elems->length; $i++)
 		{
-			if (array_search(array('a', 'link'), $elems.item($i).tagName) &&
-				strtolower($elems.item($i).rel) == 'webmention')
+			if (in_array($elems->item($i)->tagName, array('a', 'link')) &&
+				strtolower($elems->item($i)->getAttribute('rel')) == 'webmention')
 			{
-				$endpoint = $elems.item($i).href;
+				$endpoint = $elems->item($i)->getAttribute('href');
 				// Resolve relative URLS
-				$endpoint = array_merge(parse_url($link), parse_url($endpoint));
+				$u = array_merge(parse_url($link), parse_url($endpoint));
+				// Reassemble the URL
+				$endpoint = sprintf('%s://%s:%s@%s:%s%s?%s#%s',
+					$u['scheme'], $u['user'], $u['pass'], $u['host'], $u['port'],
+					$u['path'], $u['query'], $u['fragment']);
+				// Cleanup the reassembled URL
+				$endpoint = str_replace(array(':@', ':/', ':?', '?#'), array('', '/', '?', '#'), $endpoint);
+				$endpoint = preg_replace(',^(\w+)(//),', '$1:$2', $endpoint);
+
 				$endpoints[] = $endpoint;
 			}
 		}
