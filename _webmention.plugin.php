@@ -35,7 +35,6 @@ class webmention_plugin extends Plugin
 		if (is_object($Item))
 		{
 			$csrf = @$_GET['csrf'];
-			global $basepath;
 
 			// TODO: Improve!
 			$token = md5(serialize(array('url' => $Item->get_permanent_url(), 'version' => $app_version)));
@@ -46,34 +45,21 @@ class webmention_plugin extends Plugin
 			if ($source && $target && $csrf == md5(serialize(array('url' => $target, 'version' => $app_version))))
 			{
 				// If it's not an HTTP(S) source, don't process it
-				global $Settings;
 				if (!preg_match(',^https?://,', $source) || !$this->Settings->get('webmention_enable'))
 				{
-			$fh = fopen($basepath . '/webmention', 'a');
-			fwrite($fh, "Invalid URL: $source\n");
-			fclose($fh);
 					header_http_response('400 Bad Request');
 					exit(0);
 				}
 
-				$fh = fopen($basepath . '/webmention', 'a');
-				fwrite($fh, "Getting blacklist\n");
 
 				$blacklisted_hosts = explode("\r\n", $this->Settings->get('webmention_blacklist'));
-				fwrite($fh, "Got blacklist\n");
 				foreach ($blacklisted_hosts as $host)
 				{
-					$fh =  fopen($basepath . '/webmention', 'a');
-					fwrite($fh, sprintf('Checking host "%s"%s', $host, PHP_EOL));
 					if (strpos($host, parse_url($source, PHP_URL_HOST)) !== FALSE)
 					{
-						fwrite($fh, 'Host "%s" was in the blacklist%s', $host, PHP_EOL);
-						fclose($fh);
 						header_http_response('400 Bad Request');
 						exit(0);
 					}
-					fwrite($fh, "Continuing with next host\n");
-					fclose($fh);
 				}
 
 				// TODO: Validate asynchronously (SHOULD)
@@ -218,10 +204,6 @@ class webmention_plugin extends Plugin
 		for ($i = 0 ; $i < $links->length; $i++)
 		{
 			$link = $links->item($i)->getAttribute('href');
-				global $basepath;
-				$fh = fopen($basepath . '/webmention', 'a');
-				fwrite($fh, sprintf('Sending Webmention to "%s"%s', $link, PHP_EOL));
-				fclose($fh);
 			$endpoints = $this->getEndpoints($link);
 			// TODO: Support the Link: <http://example.com>; rel=webmention syntax (MAY)
 			// TODO: Only retrieve sources that are < 1 mb (MAY)
@@ -245,14 +227,10 @@ class webmention_plugin extends Plugin
 
 	function validateWebmention($item, $source)
 	{
-		global $basepath;
-		$fh = fopen($basepath . '/webmention', 'a');
-		fwrite($fh, "validateWebmention\n");
 		$ch = curl_init($source);
 		if ($ch !== FALSE)
 		{
 			global $DB;
-			fwrite($fh, sprintf('Getting source "%s" was successful%s', $source, PHP_EOL));
 
 			curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
 			curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
@@ -277,47 +255,35 @@ class webmention_plugin extends Plugin
 
 				$link_found = $link == $item->get_permanent_url();
 				if ($link_found)
-				{
-					fwrite($fh, "Link found!\n");
 					break;
-				}
 			}
 
 			if (!$link_found)
-			{
-				fwrite($fh, "Link not found!\n");
 				return FALSE;
-			}
 
 			global $servertimenow;
 			$title = $document->getElementsByTagName('title')->item(0)->nodeValue;
+			$comment_content = $DB->quote(sprintf('<strong>%s</strong><br />%s', $title, $item->title));
 
 			// I wish there were some way to do this with the comment class without messing with the database
 			$already_exists = $DB->query('SELECT *  FROM T_comments WHERE comment_author=\'' . $source . '\' AND comment_item_ID=' . $item->ID);
+
 			if ($already_exists)
 			{
-				fwrite($fh, "Post already exists\n");
 				$comment_id = $DB->get_var(sprintf('SELECT comment_ID FROM T_comments WHERE comment_item_ID=\'%s\' AND comment_author=\'%s\' ORDER BY comment_ID DESC LIMIT 1', $item->ID, $source));
-				$DB->query(sprintf('UPDATE T_comments SET comment_author=%s, comment_last_touched_ts=\'%s\' WHERE comment_ID=%d', $DB->quote($source), date2mysql($servertimenow), $comment_id));
-				fwrite($fh, "Altered the database\n");
+				$DB->query(sprintf('UPDATE T_comments SET comment_author=%s, comment_last_touched_ts=\'%s\', comment_content=\'%s\' WHERE comment_ID=%d', $DB->quote($source), $comment_content, date2mysql($servertimenow), $comment_id));
 			}
 			else
 			{
 				$nextid = $DB->get_var('SELECT MAX(comment_ID) + 1 FROM T_comments');
-				fwrite($fh, "Post does not already exists\n");
 
 				// TODO: Get the collection's default comment status (publish, review, ...)
 				$date = date2mysql($servertimenow);
-				$comment_content = $DB->quote(sprintf('<strong>%s</strong><br />%s', $title, $item->title));
 				$DB->query(sprintf('INSERT INTO T_comments (comment_ID, comment_item_ID, comment_type, comment_status, comment_author, comment_author_IP, comment_date, comment_last_touched_ts, comment_content, comment_renderers, comment_secret) VALUES (%d, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s)', $nextid, $item->ID, $DB->quote('pingback'), $DB->quote('published'), $DB->quote($source), $DB->quote($_SERVER['REMOTE_ADDR']), $DB->quote($date), $DB->quote($date), $comment_content, $DB->quote('default'), $DB->quote(generate_random_key())));
-				fwrite($fh, "Inserted new column\n");
 			}
 
-			fwrite($fh, "All went well\n");
 			return TRUE;
 		}
-		fwrite($fh, sprintf('Getting source "%s" was not successful%s', $source, PHP_EOL));
-		fclose($fh);
 
 		return FALSE;
 	}
