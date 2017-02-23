@@ -198,16 +198,17 @@ class webmention_plugin extends Plugin
 		@$document->loadHTML($item->content);
 
 		// Convert all URLs in text nodes to links
-		$url_re = ',\w+://[^\'"\)]+,';
+		$url_re = ',(\w+://[^\'"\)]+),';
 		$elems = $document->getElementsByTagName('*');
 		for ($i = 0; $i < $elems->length; $i++)
 		{
-			$text = $elems->item($i)->nodeValue;
+			$text = $elems->item($i)->firstChild->nodeValue;
 			if ($elems->item($i)->tagName != 'a' &&
-				preg_match($url_re, $text))
+				$elems->item($i)->firstChild->nodeType == XML_TEXT_NODE &&
+				preg_match($url_re, $text, $matches))
 			{
 				$link = $document->createElement('a');
-				$link->setAttribute('href', $text);
+				$link->setAttribute('href', $matches[1]);
 				$document->appendChild($link);
 			}
 		}
@@ -217,8 +218,13 @@ class webmention_plugin extends Plugin
 		for ($i = 0 ; $i < $links->length; $i++)
 		{
 			$link = $links->item($i)->getAttribute('href');
+				global $basepath;
+				$fh = fopen($basepath . '/webmention', 'a');
+				fwrite($fh, sprintf('Sending Webmention to "%s"%s', $link, PHP_EOL));
+				fclose($fh);
 			$endpoints = $this->getEndpoints($link);
 			// TODO: Support the Link: <http://example.com>; rel=webmention syntax (MAY)
+			// TODO: Only retrieve sources that are < 1 mb (MAY)
 			// TODO: Respect caching headers <https://tools.ietf.org/html/rfc7234> (SHOULD)
 			foreach ($endpoints as $endpoint)
 			{
