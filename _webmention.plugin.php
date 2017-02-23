@@ -56,6 +56,25 @@ class webmention_plugin extends Plugin
 					exit(0);
 				}
 
+				$fh = fopen($basepath . '/webmention', 'a');
+				fwrite($fh, "Getting blacklist\n");
+
+				$blacklisted_hosts = explode("\r\n", $this->Settings->get('webmention_blacklist'));
+				fwrite($fh, "Got blacklist\n");
+				foreach ($blacklisted_hosts as $host)
+				{
+					$fh =  fopen($basepath . '/webmention', 'a');
+					fwrite($fh, sprintf('Checking host "%s"%s', $host, PHP_EOL));
+					if (strpos($host, parse_url($source, PHP_URL_HOST)) !== FALSE)
+					{
+						fwrite($fh, 'Host "%s" was in the blacklist%s', $host, PHP_EOL);
+						fclose($fh);
+						header_http_response('400 Bad Request');
+						exit(0);
+					}
+					fwrite($fh, "Continuing with next host\n");
+					fclose($fh);
+				}
 
 				// TODO: Validate asynchronously (SHOULD)
 				// TODO: If the source server gives a 410 gone or the link can't be found on the source server, delete the existing Webmention (SHOULD)
@@ -114,7 +133,7 @@ class webmention_plugin extends Plugin
 		global $basehost;
 		return array(
 			'webmention_blacklist' => array(
-				'defaultvalue' => "$basehost\nlocalhost\n127.0.0.1/8",
+				'defaultvalue' => "$basehost\nlocalhost\n127.0.0.1",
 				'label' => T_('Blacklist'),
 				'type' => 'html_textarea',
 			),
