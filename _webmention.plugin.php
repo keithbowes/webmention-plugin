@@ -35,24 +35,20 @@ class webmention_plugin extends Plugin
 		$item &= $params['Item'];
 	}
 
+	// TODO: Break up this monstrosity of a method
 	function BeforeBlogDisplay( & $params )
 	{
 		global $Item;
 		global $app_version, $baseurl;
-		global $basepath;
+
+		$source = @$_POST['source'];
+		$target = @$_POST['target'];
 
 		// Only deal with Webmentions on items
 		if (is_object($Item))
 		{
-			// TODO: Ensure the source actually contains the URLs (MUST)
-			// TODO: If the post was deleted, send a 410 GONE HTTP response (SHOULD)
 			$csrf = @$_GET['csrf'];
-			$source = @$_POST['source'];
-			$target = @$_POST['target'];
-
-			$fh = fopen($basepath . '/webmention', 'a');
-			fwrite($fh, $source . PHP_EOL);
-			fwrite($fh, $target . PHP_EOL);
+			global $basepath;
 
 			// TODO: Improve!
 			$token = md5(serialize(array('url' => $Item->get_permanent_url(), 'version' => $app_version)));
@@ -62,30 +58,63 @@ class webmention_plugin extends Plugin
 			// TODO: Don't process blacklisted sources
 			if ($source && $target && $token == md5(serialize(array('url' => $target, 'version' => $app_version))))
 			{
-				$fh = fopen($basepath . '/webmention', 'a');
-				fwrite($fh, sprintf('"%s" and "%s" are the same. Continue.%s', $Item->get_permanent_url(), $target, PHP_EOL));
-				fclose($fh);
 				// If it's not an HTTP(S) source, don't process it
-				if (!preg_match(',^https?://,', $source))
+				global $Settings;
+				if (!preg_match(',^https?://,', $source) || !$this->Settings->get('webmention_enable'))
+				{
+			$fh = fopen($basepath . '/webmention', 'a');
+			fwrite($fh, "Invalid URL: $source\n");
+			fclose($fh);
+					header_http_response('400 Bad Request');
+					exit(0);
+				}
+
+
+				// TODO: Validate asynchronously (SHOULD)
+				// TODO: Make sure the target URL is referenced in <a href> or <* src> (SHOULD)
+				// TODO: Inspect the request and be sure the source isn't already in the comments for the target item's comment (SHOULD)
+				// TODO: If the source server gives a 410 gone or the link can't be found on the source server, delete the existing Webmention (SHOULD)
+				// TODO: No content changes on the source or target shouldn't get shown as another comment entry (SHOULD)
+				// TODO: Encode data as not to be the target of an XSS or CSRF attack (MUST)
+
+				if ($this->validateWebmention($Item, $target))
+				{
+					if (FALSE)
+						header_http_response('400 Bad Request');
+					return TRUE;
+				}
+				else
 				{
 					header_http_response('400 Bad Request');
 					exit(0);
 				}
 			}
-		
-
-			// TODO: Ensure $source and $target are valid HTTP(S) URLs (MUST)
-			// TODO: Validate asynchronously (SHOULD)
-			// TODO: Make sure the target URL is referenced in <a href> or <* src> (SHOULD)
-			// TODO: If the request is invalid (target URL not found, target URL does not accept Webmention requests, unsupported URL scheme), send a 400 Bad Request (MUST)
-			// TODO: If the request can't be processed, send a 500 Internal Server Error (SHOULD)
-			// TODO: Inspect the request and be sure the source isn't already in the comments for the target item's comment (MUST)
-			// TODO: If the source server gives a 410 gone or the link can't be found on the source server, delete the existing Webmention (SHOULD)
-			// TODO: No content changes on the source or target shouldn't get shown as another comment entry (SHOULD)
-			// TODO: Encode data as not to be the target of an XSS or CSRF attack (MUST)
-			$ch = curl_init();
-			curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-			curl_close($ch);
+			elseif ($source || $target)
+			{
+				header_http_response('400 Bad Request');
+				exit(0);
+			}
+			else
+				return TRUE;
+		}
+		elseif ($source || $target)
+		{
+			global $disp;
+			if ($disp == 404)
+			{
+				header_http_response('410 Gone');
+				exit(0);
+			}
+			elseif ($disp != 'posts')
+			{
+				header_http_response('500 Internal Server Error');
+				exit(0);
+			}
+			else
+			{
+				header_http_response('400 Bad Request');
+				exit(0);
+			}
 		}
 	}
 
@@ -121,11 +150,44 @@ class webmention_plugin extends Plugin
 		$this->sendWebmention($params['Item']);
 	}
 
+	function getEndpoints($link)
+	{
+		$ch = curl_init();
+		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+		curl_setopt($ch, CURLOPT_URL, $link);
+		curl_setopt($ch, CURLOPT_USERAGENT, $this->user_agent);
+
+		$document = new DOMDocument();
+		@$document->loadHTML(curl_exec($ch));
+		$elems = $document->getElementsByTagName('*');
+
+		for ($i = 0; $i < $elems->length; $i++)
+		{
+			if (in_array($elems->item($i)->tagName, array('a', 'link')) &&
+				strtolower($elems->item($i)->getAttribute('rel')) == 'webmention')
+			{
+				$endpoint = $elems->item($i)->getAttribute('href');
+				// Resolve relative URLS
+				$u = array_merge(parse_url($link), parse_url($endpoint));
+				// Reassemble the URL
+				$endpoint = sprintf('%s://%s:%s@%s:%s%s?%s#%s',
+					$u['scheme'], $u['user'], $u['pass'], $u['host'], $u['port'],
+					$u['path'], $u['query'], $u['fragment']);
+				// Cleanup the reassembled URL
+				$endpoint = str_replace(array(':@', ':/', ':?', '?#'), array('', '/', '?', '#'), $endpoint);
+				$endpoint = preg_replace(',^(\w+)(//),', '$1:$2', $endpoint);
+
+				$endpoints[] = $endpoint;
+			}
+		}
+
+		curl_close($ch);
+		return $endpoints;
+	}
+
 	function sendWebmention( & $item )
 	{
-		global $basepath;
-		global $DB;
-
 		if (!is_object($item))
 			return;
 
@@ -155,7 +217,6 @@ class webmention_plugin extends Plugin
 			$link = $links->item($i)->getAttribute('href');
 			$endpoints = $this->getEndpoints($link);
 			// TODO: Support the Link: <http://example.com>; rel=webmention syntax (MAY)
-			// TODO: Handle CSRF parameters? (SHOULD)
 			// TODO: Respect caching headers <https://tools.ietf.org/html/rfc7234> (SHOULD)
 			foreach ($endpoints as $endpoint)
 			{
@@ -174,44 +235,84 @@ class webmention_plugin extends Plugin
 
 	}
 
-	function getEndpoints($link)
+	function validateWebmention($item, $target)
 	{
-		$ch = curl_init();
-		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-		curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
-		curl_setopt($ch, CURLOPT_URL, $link);
-		curl_setopt($ch, CURLOPT_USERAGENT, $this->user_agent);
-
-		$document = new DOMDocument();
-		@$document->loadHTML(curl_exec($ch));
-		$elems = $document->getElementsByTagName('*');
-
-		for ($i = 0; $i < $elems->length; $i++)
+		global $basepath;
+		$fh = fopen($basepath . '/webmention', 'a');
+		fwrite($fh, "validateWebmention\n");
+		$ch = curl_init($target);
+		if ($ch !== FALSE)
 		{
-			if (in_array($elems->item($i)->tagName, array('a', 'link')) &&
-				strtolower($elems->item($i)->getAttribute('rel')) == 'webmention')
+			global $DB;
+			fwrite($fh, sprintf('Getting target "%s" was successful%s', $target, PHP_EOL));
+
+			curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+			curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+			curl_setopt($ch, CURLOPT_USERAGENT, $this->user_agent);
+			$page = curl_exec($ch);
+			curl_close($ch);
+
+			$document = new DOMDocument();
+			@$document->loadHTML($page);
+
+			$elems = $document->getElementsByTagName('*');
+			for ($i = 0; $i < $elems->length; $i++)
 			{
-				$endpoint = $elems->item($i)->getAttribute('href');
-				// Resolve relative URLS
-				$u = array_merge(parse_url($link), parse_url($endpoint));
-				// Reassemble the URL
-				$endpoint = sprintf('%s://%s:%s@%s:%s%s?%s#%s',
-					$u['scheme'], $u['user'], $u['pass'], $u['host'], $u['port'],
-					$u['path'], $u['query'], $u['fragment']);
-				// Cleanup the reassembled URL
-				$endpoint = str_replace(array(':@', ':/', ':?', '?#'), array('', '/', '?', '#'), $endpoint);
-				$endpoint = preg_replace(',^(\w+)(//),', '$1:$2', $endpoint);
-				global $basepath;
-				$fh = fopen($basepath . '/webmention', 'a');
-				fwrite($fh, sprintf('Found endpoint "%s"%s', $endpoint, PHP_EOL));
-				fclose($fh);
+				if ($elems->item($i)->tagName == 'a')
+				{
+					$link = $elems->item($i)->getAttribute('href');
+				}
+				elseif(in_array($elems->item($i)->tagName, array('audio', 'img', 'video')))
+				{
+					$link = $elems->item($i)->getAttribute('src');
+				}
 
-				$endpoints[] = $endpoint;
+				$link_found = $link == $item->get_permanent_url();
+				if ($link_found)
+				{
+					fwrite($fh, "Link found!\n");
+					break;
+				}
 			}
-		}
 
-		curl_close($ch);
-		return $endpoints;
+			if (!$link_found)
+			{
+				fwrite($fh, "Link not found!\n");
+				return FALSE;
+			}
+
+			global $servertimenow;
+			$title = $document->getElementsByTagName('title')->item(0)->nodeValue;
+
+			// I wish there were some way to do this with the comment class without messing with the database
+			$already_exists = $DB->query('SELECT *  FROM T_comments WHERE comment_author=\'' . $target . '\' AND comment_item_ID=' . $item->ID);
+			if ($already_exists)
+			{
+				fwrite($fh, "Post already exists\n");
+				// TODO: Replace existing information
+				$comment_id = $DB->get_var(sprintf('SELECT comment_ID FROM T_comments WHERE comment_item_ID=\'%s\' AND comment_author_url=\'$s\' ORDER BY comment_ID DESC LIMIT 1', $Item->ID, $target));
+				$DB->query(sprintf('UPDATE T_comments SET comment_author=\'%s\', comment_last_touched_ts=\'%s\' WHERE comment_ID=\'%s\'', $DB->quote($title), date2mysql($servertimenow), $comment_id));
+				fwrite($fh, "Altered the database\n");
+			}
+			else
+			{
+				$nextid = $DB->get_var('SELECT MAX(comment_ID) + 1 FROM T_comments');
+				fwrite($fh, "Post does not already exists\n");
+
+				// TODO: Get the collection's default comment status (publish, review, ...)
+				$date = date2mysql($servertimenow);
+				$comment_content = $DB->quote(sprintf('<strong>%s</strong><br />%s', $title, $item->title));
+				$DB->query(sprintf('INSERT INTO T_comments (comment_ID, comment_item_ID, comment_type, comment_status, comment_author, comment_author_IP, comment_date, comment_last_touched_ts, comment_content, comment_renderers, comment_secret) VALUES (%d, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s)', $nextid, $item->ID, $DB->quote('pingback'), $DB->quote('published'), $DB->quote($target), $DB->quote($_SERVER['REMOTE_ADDR']), $DB->quote($date), $DB->quote($date), $comment_content, $DB->quote('default'), $DB->quote(generate_random_key())));
+				fwrite($fh, "Inserted new column\n");
+			}
+
+			fwrite($fh, "All went well\n");
+			return TRUE;
+		}
+		fwrite($fh, sprintf('Getting target "%s" was not successful%s', $target, PHP_EOL));
+		fclose($fh);
+
+		return FALSE;
 	}
 }
 
