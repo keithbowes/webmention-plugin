@@ -56,7 +56,7 @@ class webmention_plugin extends Plugin
 
 			// Everything seems OK; try to process the Webmention
 			// TODO: Don't process blacklisted sources
-			if ($source && $target && $token == md5(serialize(array('url' => $target, 'version' => $app_version))))
+			if ($source && $target && $csrf == md5(serialize(array('url' => $target, 'version' => $app_version))))
 			{
 				// If it's not an HTTP(S) source, don't process it
 				global $Settings;
@@ -77,7 +77,7 @@ class webmention_plugin extends Plugin
 				// TODO: No content changes on the source or target shouldn't get shown as another comment entry (SHOULD)
 				// TODO: Encode data as not to be the target of an XSS or CSRF attack (MUST)
 
-				if ($this->validateWebmention($Item, $target))
+				if ($this->validateWebmention($Item, $source))
 				{
 					if (FALSE)
 						header_http_response('400 Bad Request');
@@ -235,16 +235,16 @@ class webmention_plugin extends Plugin
 
 	}
 
-	function validateWebmention($item, $target)
+	function validateWebmention($item, $source)
 	{
 		global $basepath;
 		$fh = fopen($basepath . '/webmention', 'a');
 		fwrite($fh, "validateWebmention\n");
-		$ch = curl_init($target);
+		$ch = curl_init($source);
 		if ($ch !== FALSE)
 		{
 			global $DB;
-			fwrite($fh, sprintf('Getting target "%s" was successful%s', $target, PHP_EOL));
+			fwrite($fh, sprintf('Getting source "%s" was successful%s', $source, PHP_EOL));
 
 			curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
 			curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
@@ -285,13 +285,13 @@ class webmention_plugin extends Plugin
 			$title = $document->getElementsByTagName('title')->item(0)->nodeValue;
 
 			// I wish there were some way to do this with the comment class without messing with the database
-			$already_exists = $DB->query('SELECT *  FROM T_comments WHERE comment_author=\'' . $target . '\' AND comment_item_ID=' . $item->ID);
+			$already_exists = $DB->query('SELECT *  FROM T_comments WHERE comment_author=\'' . $source . '\' AND comment_item_ID=' . $item->ID);
 			if ($already_exists)
 			{
 				fwrite($fh, "Post already exists\n");
 				// TODO: Replace existing information
-				$comment_id = $DB->get_var(sprintf('SELECT comment_ID FROM T_comments WHERE comment_item_ID=\'%s\' AND comment_author_url=\'$s\' ORDER BY comment_ID DESC LIMIT 1', $Item->ID, $target));
-				$DB->query(sprintf('UPDATE T_comments SET comment_author=\'%s\', comment_last_touched_ts=\'%s\' WHERE comment_ID=\'%s\'', $DB->quote($title), date2mysql($servertimenow), $comment_id));
+				$comment_id = $DB->get_var(sprintf('SELECT comment_ID FROM T_comments WHERE comment_item_ID=\'%s\' AND comment_author=\'%s\' ORDER BY comment_ID DESC LIMIT 1', $item->ID, $source));
+				$DB->query(sprintf('UPDATE T_comments SET comment_author=%s, comment_last_touched_ts=\'%s\' WHERE comment_ID=%d', $DB->quote($source), date2mysql($servertimenow), $comment_id));
 				fwrite($fh, "Altered the database\n");
 			}
 			else
@@ -302,14 +302,14 @@ class webmention_plugin extends Plugin
 				// TODO: Get the collection's default comment status (publish, review, ...)
 				$date = date2mysql($servertimenow);
 				$comment_content = $DB->quote(sprintf('<strong>%s</strong><br />%s', $title, $item->title));
-				$DB->query(sprintf('INSERT INTO T_comments (comment_ID, comment_item_ID, comment_type, comment_status, comment_author, comment_author_IP, comment_date, comment_last_touched_ts, comment_content, comment_renderers, comment_secret) VALUES (%d, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s)', $nextid, $item->ID, $DB->quote('pingback'), $DB->quote('published'), $DB->quote($target), $DB->quote($_SERVER['REMOTE_ADDR']), $DB->quote($date), $DB->quote($date), $comment_content, $DB->quote('default'), $DB->quote(generate_random_key())));
+				$DB->query(sprintf('INSERT INTO T_comments (comment_ID, comment_item_ID, comment_type, comment_status, comment_author, comment_author_IP, comment_date, comment_last_touched_ts, comment_content, comment_renderers, comment_secret) VALUES (%d, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s)', $nextid, $item->ID, $DB->quote('pingback'), $DB->quote('published'), $DB->quote($source), $DB->quote($_SERVER['REMOTE_ADDR']), $DB->quote($date), $DB->quote($date), $comment_content, $DB->quote('default'), $DB->quote(generate_random_key())));
 				fwrite($fh, "Inserted new column\n");
 			}
 
 			fwrite($fh, "All went well\n");
 			return TRUE;
 		}
-		fwrite($fh, sprintf('Getting target "%s" was not successful%s', $target, PHP_EOL));
+		fwrite($fh, sprintf('Getting source "%s" was not successful%s', $source, PHP_EOL));
 		fclose($fh);
 
 		return FALSE;
