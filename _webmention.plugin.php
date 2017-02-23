@@ -23,19 +23,6 @@ class webmention_plugin extends Plugin
 
 	}
 
-	function AdminBeforeItemEditDelete( & $params)
-	{
-		// TODO: Where we delete Webmentions associated with the deleted item?
-		$item &= $params['Item'];
-	}
-
-	function AfterItemDelete( & $paras)
-	{
-		// TODO: Where we delete Webmentions associated with the deleted item?
-		$item &= $params['Item'];
-	}
-
-	// TODO: Break up this monstrosity of a method
 	function BeforeBlogDisplay( & $params )
 	{
 		global $Item;
@@ -71,11 +58,7 @@ class webmention_plugin extends Plugin
 
 
 				// TODO: Validate asynchronously (SHOULD)
-				// TODO: Make sure the target URL is referenced in <a href> or <* src> (SHOULD)
-				// TODO: Inspect the request and be sure the source isn't already in the comments for the target item's comment (SHOULD)
 				// TODO: If the source server gives a 410 gone or the link can't be found on the source server, delete the existing Webmention (SHOULD)
-				// TODO: No content changes on the source or target shouldn't get shown as another comment entry (SHOULD)
-				// TODO: Encode data as not to be the target of an XSS or CSRF attack (MUST)
 
 				if ($this->validateWebmention($Item, $source))
 				{
@@ -289,7 +272,6 @@ class webmention_plugin extends Plugin
 			if ($already_exists)
 			{
 				fwrite($fh, "Post already exists\n");
-				// TODO: Replace existing information
 				$comment_id = $DB->get_var(sprintf('SELECT comment_ID FROM T_comments WHERE comment_item_ID=\'%s\' AND comment_author=\'%s\' ORDER BY comment_ID DESC LIMIT 1', $item->ID, $source));
 				$DB->query(sprintf('UPDATE T_comments SET comment_author=%s, comment_last_touched_ts=\'%s\' WHERE comment_ID=%d', $DB->quote($source), date2mysql($servertimenow), $comment_id));
 				fwrite($fh, "Altered the database\n");
