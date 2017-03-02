@@ -174,7 +174,7 @@ class Webmention
 
 			$elems = $document->getElementsByTagName('*');
 			$link_found = FALSE;
-			for ($i = 0; $i < $elems->length; $i++)
+			for ($i = $elems->length; $i > 0; $i--)
 			{
 				if ($elems->item($i)->tagName == 'a')
 				{
@@ -187,7 +187,10 @@ class Webmention
 
 				$link_found = $link == $item_url;
 				if ($link_found)
+				{
+					$text = $elems->item($i)->parentNode->nodeValue;
 					break;
+				}
 			}
 
 			if (!$link_found)
@@ -199,7 +202,7 @@ class Webmention
 			$already_exists = FALSE;
 			$this->getWebmentionInfo($item, $source, $title, $url, $already_exists);
 			$method = $already_exists ? 'updateWebmention' : 'saveWebmention';
-			$res = $this->$method($item, $source, $document->getElementsByTagName('title')->item(0)->nodeValue, NULL);
+			$res = $this->$method($item, $source, $document->getElementsByTagName('title')->item(0)->nodeValue, $url, $text);
 			if (!$res)
 				$this->giveResponse('400 Bad Request', 'Webmention didn\'t validate');
 			return $res;
