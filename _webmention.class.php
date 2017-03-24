@@ -18,6 +18,7 @@ class Webmention
 		$this->setUserAgent();
 	}
 
+	// TODO: Support the Link: <http://example.com>; rel=webmention syntax (MAY)
 	function getEndpoints($link)
 	{
 		$ch = curl_init($link);
@@ -111,9 +112,6 @@ class Webmention
 		{
 			$link = $links->item($i)->getAttribute('href');
 			$endpoints = $this->getEndpoints($link);
-			// TODO: Support the Link: <http://example.com>; rel=webmention syntax (MAY)
-			// TODO: Only retrieve sources that are < 1 mb (MAY)
-			// TODO: Respect caching headers <https://tools.ietf.org/html/rfc7234> (SHOULD)
 			foreach ($endpoints as $endpoint)
 			{
 				$ch = curl_init($endpoint);
@@ -135,6 +133,8 @@ class Webmention
 		$this->user_agent = ltrim($ua . ' Webmention/1.0');
 	}
 
+	// TODO: Only retrieve sources that are < 1 mb (MAY)
+	// TODO: Respect caching headers <https://tools.ietf.org/html/rfc7234> (SHOULD)
 	// TODO: Validate asynchronously (SHOULD)
 	function validateWebmention($item, $source, $item_url)
 	{
@@ -213,8 +213,8 @@ class Webmention
 
 	private function isLoopBack()
 	{
-		$host = $_SERVER['HTTP_HOST'];
-		return preg_match('/^127\.|0\.0\.|192\.168\.|localhost/', $host);
+		return preg_match('/^127\.|^0\.0\.|^192\.168\.|^localhost/', $_SERVER['HTTP_HOST']);
 	}
 }
+
 ?>
