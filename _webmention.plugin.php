@@ -12,7 +12,6 @@ class webmention_plugin extends Plugin
 
 	function PluginInit( & $params )
 	{
-		global $Settings;
 		global $app_name, $app_version;
 		$this->name = T_('Webmention plugin');
 		$this->short_desc = T_('Sends and receives Webmentions');
@@ -24,6 +23,7 @@ class webmention_plugin extends Plugin
 		{
 			$this->webmention->accept_from_current_host = !$this->Settings->get('webmention_block_current_host');
 			$this->webmention->accept_from_loopback = !$this->Settings->get('webmention_block_localhost');
+			$this->webmention->comment_type = $this->Settings->get('webmention_comment_type');
 			$this->webmention->webmentions_enabled = $this->Settings->get('webmention_enable');
 		}
 
@@ -90,13 +90,25 @@ class webmention_plugin extends Plugin
 
 	function GetDefaultSettings( & $params )
 	{
-		global $basehost;
 		return array(
 			'webmention_enable' => array(
 				'defaultvalue' => 1,
 				'label' => T_('Enable Webmention'),
 				'note' => T_('Disabling can tell senders that you don\'t accept Webmentions'),
 				'type' => 'checkbox',
+			),
+			'webmention_comment_type' => array(
+				'defaultvalue' => 'pingback',
+				'label' => T_('Save WebMentions as'),
+				'note' => T_('The database must be altered to allow saving as WebMention'),
+				'options' => array(
+					'comment' => T_('Comment'),
+					'linkback' =>T_('Linkback'),
+					'trackback' => T_('Trackback'),
+					'pingback' => T_('Pingback'),
+					'mention' => T_('WebMention'),
+				),
+				'type' => 'select',
 			),
 			'webmention_block_current_host' => array(
 				'defaultvalue' => 1,
