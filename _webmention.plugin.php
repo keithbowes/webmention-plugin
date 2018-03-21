@@ -8,7 +8,7 @@ class webmention_plugin extends Plugin
 	var $code = 'b2evWebmention';
 	var $group = 'ping';
 	var $number_of_installs = 1;
-	var $version = '0.1';
+	var $version = '0.2';
 
 	function PluginInit( & $params )
 	{
