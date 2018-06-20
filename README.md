@@ -1,5 +1,5 @@
 # Webmention plugin
-This is an implementation of Webmention in PHP.  It includes a plugin to add [Webmention](http://www.w3.org/TR/webmention) support to @b2evolution.
+This is an implementation of Webmention in PHP.  It includes a plugin to add [Webmention](http://www.w3.org/TR/webmention) support to [b2evolution](https://gitlab.com/keithbowes/b2evolution).
 
 ## How it functions
 It inspects links in posts.  It will then send Webmentions.
