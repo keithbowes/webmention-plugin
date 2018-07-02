@@ -8,6 +8,10 @@ When it receives one, it will check for its validity and that the Webmention doe
 
 If it does already exist, it will update the information in the database.
 
+## Vouch support
+
+[Vouch](https://indieweb.org/Vouch) is supported but untested.  If you want to test it and find any bugs, report them.  Receiving Webmentions with Vouch is implemented according to the specification.  To send a Webmention with Vouch, use the HTML5+ <var>data-vouch</var> attribute.
+
 ## Known issues
 
 1. It doesn't support all the MAY and SHOULD conditions of the spec.  In particular:

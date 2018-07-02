@@ -7,6 +7,8 @@ class Webmention
 	var $hash_algo = 'md5';
 	var $webmentions_enabled = TRUE;
 
+	var $version = '0.3';
+
 	private $user_agent;
 
 	function __construct()
@@ -14,6 +16,7 @@ class Webmention
 		$this->source = @$_POST['source'];
 		$this->target = @$_POST['target'];
 		$this->token = @$_GET['csrf'];
+		$this->vouch = @$_POST['vouch'];
 
 		$this->setUserAgent();
 	}
@@ -28,7 +31,7 @@ class Webmention
 		$page_content = curl_exec($ch);
 
 		$document = new DOMDocument();
-		@$document->loadHTML(curl_exec($ch));
+		@$document->loadHTML($page_content);
 		$elems = $document->getElementsByTagName('*');
 		curl_close($ch);
 
@@ -111,21 +114,25 @@ class Webmention
 		for ($i = 0 ; $i < $links->length; $i++)
 		{
 			$link = $links->item($i)->getAttribute('href');
+			$vouch = $links->item($i)->getAttribute('data-vouch');
 			$endpoints = $this->getEndpoints($link);
 			foreach ($endpoints as $endpoint)
 			{
+				$query = array('source' => $url, 'target' => $link);
+				if (!empty($vouch))
+					$query = array_merge($query, array('vouch' => $vouch));
+
 				$ch = curl_init($endpoint);
 				curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
 				curl_setopt($ch, CURLOPT_POST, TRUE);
 				curl_setopt($ch, CURLOPT_POSTFIELDS,
-					http_build_query(array('source' => $url, 'target' => $link)));
+					http_build_query($query));
 				curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
 				curl_setopt($ch, CURLOPT_USERAGENT, $this->user_agent);
 				curl_exec($ch);
 				curl_close($ch);
 			}
 		}
-
 	}
 
 	function setUserAgent($ua = '')
@@ -136,8 +143,11 @@ class Webmention
 	// TODO: Only retrieve sources that are < 1 mb (MAY)
 	// TODO: Respect caching headers <https://tools.ietf.org/html/rfc7234> (SHOULD)
 	// TODO: Validate asynchronously (SHOULD)
-	function validateWebmention($item, $source, $item_url)
+	function validateWebmention($item, $source, $vouch, $item_url)
 	{
+		$has_vouch = !empty($vouch);
+		$not_approved = $has_vouch ? '400 Bad Request' : '449 Try With Vouch';
+
 		if ($this->isValidToken() === NULL)
 			return;
 
@@ -146,10 +156,14 @@ class Webmention
 
 		if ((!$this->accept_from_loopback && $this->isLoopback()) ||
 			($this->accept_from_current_host && strpos($_SERVER['HTTP_HOST'], $source) !== FALSE))
-			$this->giveResponse('400 Bad Request', 'Request from prohibited source');
+			$this->giveResponse($not_approved, 'Request from prohibited source');
 
 		if (preg_match(',^https?://,', $source) === FALSE)
-			$this->giveResponse('400 Bad Request', 'Unsupported protocol');
+			$this->giveResponse($not_approved, 'Unsupported protocol');
+
+		// Let's make sure vouch validates
+		if ($has_vouch && !($res = $this->validateWebmention($item, $vouch, '', $source)))
+			return FALSE;
 
 		$ch = curl_init($source);
 		if ($ch !== FALSE)
@@ -203,7 +217,7 @@ class Webmention
 			$this->getWebmentionInfo($item, $source, $title, $url, $already_exists);
 			$method = $already_exists ? 'updateWebmention' : 'saveWebmention';
 			$res = $this->$method($item, $source, $document->getElementsByTagName('title')->item(0)->nodeValue, $url, $text);
-			if (!$res)
+			if (!$res && !$has_vouch)
 				$this->giveResponse('400 Bad Request', 'Webmention didn\'t validate');
 			return $res;
 		}

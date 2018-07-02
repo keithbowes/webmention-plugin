@@ -8,7 +8,6 @@ class webmention_plugin extends Plugin
 	var $code = 'b2evWebmention';
 	var $group = 'ping';
 	var $number_of_installs = 1;
-	var $version = '0.2';
 
 	function PluginInit( & $params )
 	{
@@ -18,6 +17,7 @@ class webmention_plugin extends Plugin
 
 		$this->webmention = new evo_Webmention();
 		$this->webmention->setUserAgent(sprintf("%s/%s", $app_name, $app_version));
+		$this->version = $this->webmention->version;
 
 		if ($params['is_installed'] && is_object($this->Settings))
 		{
@@ -61,7 +61,7 @@ class webmention_plugin extends Plugin
 					}
 				}
 
-				$this->webmention->validateWebmention($Item, $this->webmention->source, $Item->get_permanent_url());
+				$this->webmention->validateWebmention($Item, $this->webmention->source, $this->webmention->vouch, $Item->get_permanent_url());
 			}
 			elseif ($this->webmention->source || $this->webmention->target)
 				$this->webmention->giveResponse('400 Bad Request', 'Invalid token');
